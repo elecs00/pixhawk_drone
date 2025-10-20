@@ -1,0 +1,21 @@
+# build / install / logs
+build/
+install/
+log/
+
+# OS / Editor
+.DS_Store
+.vscode/
+*.swp
+
+# archives / binaries
+*.zip
+*.tar.gz
+*.AppImage
+
+# python
+__pycache__/
+*.pyc
+
+# other
+*.egg-info/

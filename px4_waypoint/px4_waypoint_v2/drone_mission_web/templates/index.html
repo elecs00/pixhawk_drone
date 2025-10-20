@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>드론 통합 관제 시스템</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #f0f2f5; }
+        .panel { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.1); width: 450px; }
+        h1, h2 { color: #333; text-align: center; border-bottom: 1px solid #eee; padding-bottom: 15px; margin-top: 0; }
+        
+        /* Waypoint 입력 폼 */
+        .waypoint-form { display: flex; gap: 10px; margin-bottom: 15px; }
+        .waypoint-form input { flex: 1; padding: 10px; border: 1px solid #ddd; border-radius: 8px; font-size: 1em; }
+        #btn-add-wp { padding: 10px 15px; background-color: #007bff; color: white; border: none; border-radius: 8px; cursor: pointer; }
+
+        /* Waypoint 목록 */
+        #waypoint-list { list-style-type: none; padding: 0; max-height: 150px; overflow-y: auto; margin-bottom: 20px; }
+        #waypoint-list li { background: #f8f9fa; margin-bottom: 5px; padding: 10px; border-radius: 5px; display: flex; justify-content: space-between; align-items: center; }
+        #waypoint-list button { background: #dc3545; color: white; border: none; border-radius: 50%; width: 20px; height: 20px; cursor: pointer; }
+
+        /* 제어 버튼 */
+        .control-buttons { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .control-buttons button { padding: 12px; font-size: 1em; border: none; border-radius: 8px; cursor: pointer; color: white; }
+        #btn-set-patrol { background-color: #17a2b8; }
+        #btn-start-patrol { background-color: #28a745; }
+
+        /* 상태 패널 */
+        #status-panel .status-item { margin-bottom: 15px; font-size: 1.2em; }
+        #status-panel .label { font-weight: bold; color: #555; }
+        #status-panel .value { color: #0056b3; }
+
+        /* 긴급 출동 알림 UI */
+        #emergency-alert { text-align: center; border: 3px solid #dc3545; padding: 20px; border-radius: 12px; }
+        #emergency-alert h2 { color: #dc3545; border: none; }
+        #emergency-alert p { font-size: 1.2em; }
+        #emergency-alert .buttons { display: flex; justify-content: center; gap: 20px; margin-top: 20px; }
+        #btn-dispatch { background-color: #dc3545; font-size: 1.2em; padding: 15px 30px;}
+        #btn-cancel-alert { background-color: #6c757d; font-size: 1.2em; padding: 15px 30px;}
+    </style>
+</head>
+<body>
+
+<div class="panel" id="main-panel">
+    <div id="normal-ui">
+        <h2>정찰 모드 설정</h2>
+        <div class="waypoint-form">
+            <input type="text" id="wp-lat" placeholder="위도 (e.g., 35.8847)">
+            <input type="text" id="wp-lon" placeholder="경도 (e.g., 128.6117)">
+            <button id="btn-add-wp">+</button>
+        </div>
+        <ol id="waypoint-list"></ol>
+        <div class="control-buttons">
+            <button id="btn-set-patrol">경로 설정</button>
+            <button id="btn-start-patrol">정찰 시작</button>
+        </div>
+        <hr style="margin: 20px 0;">
+        <div id="status-panel">
+             <h2>드론 상태</h2>
+            <div class="status-item">
+                <span class="label">모드:</span> <span class="value" id="status-mode"></span>
+            </div>
+            <div class="status-item">
+                <span class="label">상태:</span> <span class="value" id="status-message"></span>
+            </div>
+        </div>
+    </div>
+
+    <div id="emergency-alert" style="display: none;">
+        <h2>🚨 긴급 출동 요청 🚨</h2>
+        <p>새로운 긴급 목표가 수신되었습니다. 즉시 출동하시겠습니까?</p>
+        <p id="emergency-coords" style="font-weight: bold; font-size: 1.3em; color: #333;"></p>
+        <div class="buttons">
+            <button id="btn-dispatch">🚀 긴급 출동</button>
+            <button id="btn-cancel-alert">❌ 무시</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    let patrolWaypoints = [];
+    const wpLatInput = document.getElementById('wp-lat'), wpLonInput = document.getElementById('wp-lon'), btnAddWp = document.getElementById('btn-add-wp'), waypointList = document.getElementById('waypoint-list');
+    const normalUI = document.getElementById('normal-ui'), emergencyAlertUI = document.getElementById('emergency-alert');
+    const statusMode = document.getElementById('status-mode'), statusMessage = document.getElementById('status-message'), emergencyCoords = document.getElementById('emergency-coords');
+
+    // Waypoint 추가/삭제/렌더링 로직
+    btnAddWp.addEventListener('click', () => {
+        const lat = parseFloat(wpLatInput.value), lon = parseFloat(wpLonInput.value);
+        if (!isNaN(lat) && !isNaN(lon)) {
+            patrolWaypoints.push({ lat, lon });
+            renderWaypoints();
+            wpLatInput.value = ''; wpLonInput.value = ''; wpLatInput.focus();
+        } else { alert('유효한 위도와 경도를 입력하세요.'); }
+    });
+    waypointList.addEventListener('click', (e) => {
+        if (e.target.tagName === 'BUTTON') {
+            patrolWaypoints.splice(parseInt(e.target.dataset.index, 10), 1);
+            renderWaypoints();
+        }
+    });
+    function renderWaypoints() {
+        waypointList.innerHTML = '';
+        patrolWaypoints.forEach((wp, index) => {
+            const li = document.createElement('li');
+            li.innerHTML = `<span>${index + 1}: ${wp.lat.toFixed(5)}, ${wp.lon.toFixed(5)}</span><button data-index="${index}">-</button>`;
+            waypointList.appendChild(li);
+        });
+    }
+
+    // 제어 버튼 이벤트 리스너
+    document.getElementById('btn-set-patrol').addEventListener('click', async () => {
+        const res = await fetch('/set_patrol_waypoints', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ waypoints: patrolWaypoints }) });
+        alert((await res.json()).message);
+    });
+    document.getElementById('btn-start-patrol').addEventListener('click', () => fetch('/start_patrol', { method: 'POST' }));
+    document.getElementById('btn-dispatch').addEventListener('click', () => fetch('/dispatch_emergency', { method: 'POST' }));
+    document.getElementById('btn-cancel-alert').addEventListener('click', () => fetch('/cancel_alert', { method: 'POST' }));
+
+    // 1초마다 상태를 업데이트하여 UI 변경
+    setInterval(async () => {
+        try {
+            const res = await fetch('/status');
+            const state = await res.json();
+
+            if (state.mode === 'emergency_alert') {
+                normalUI.style.display = 'none';
+                emergencyAlertUI.style.display = 'block';
+                if (state.emergency_target) {
+                    emergencyCoords.textContent = `목표: ${state.emergency_target.lat.toFixed(6)}, ${state.emergency_target.lon.toFixed(6)}`;
+                }
+            } else {
+                normalUI.style.display = 'block';
+                emergencyAlertUI.style.display = 'none';
+                statusMode.textContent = state.mode;
+                statusMessage.textContent = state.status_message;
+            }
+        } catch (error) {
+            statusMessage.textContent = '서버 연결 끊김.';
+        }
+    }, 1000);
+</script>
+</body>
+</html>
