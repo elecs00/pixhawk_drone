@@ -1,77 +1,70 @@
-# pixhawk_drone
- # pixhawk_drone
+# pixhawk_drone — 안드로이드·웹 연동 PX4 드론 임무 제어
 
- 이 저장소는 Pixhawk/ PX4 관련 드론 개발 및 시뮬레이션용 소스와 도구들을 모아놓은 프로젝트입니다.
+안드로이드 앱이 보낸 좌표를 받아 PX4 드론에 웨이포인트 임무를 올리고, 웹 관제 화면에서 정찰·긴급 출동을 지휘하는 MAVSDK 기반 스크립트 모음입니다. PX4 SITL(Gazebo) 시뮬레이션 환경에서 개발했습니다.
 
- ## 전체 구조(요약)
+| 항목 | 내용 |
+|---|---|
+| 비행 제어 | PX4 Autopilot (Pixhawk), SITL + Gazebo 시뮬레이션 |
+| 통신 | MAVSDK-Python (`udp://:14540`), pymavlink, UDP(안드로이드 → PC) |
+| 웹 | Flask, aiohttp |
+| 직접 구현 | `px4_waypoint/` 아래 전부 (임무 생성·업로드, 안드로이드 좌표 수신, 웹 관제, RTK 보정 메시지 시험) |
 
- 루트 폴더의 주요 항목과 역할을 아래에 정리합니다.
+### 동작 흐름 (웹 관제 `drone_mission_web`)
 
- ```
- / (repository root)
- ├─ QGroundControl-x86_64.AppImage      # (대형 바이너리) QGroundControl 실행파일
- ├─ PX4-Autopilot/                       # PX4 오토파일럿 소스 (대형, 서브모듈/내부 빌드 포함)
- ├─ px4_ros_uxrce_dds_ws/                # Micro XRCE DDS / ROS 관련 워크스페이스 (build, install, src 등)
- │  ├─ build/                            # 빌드 아티팩트 (커밋에서 제외되어야 함)
- │  ├─ install/                          # 설치 결과 (커밋에서 제외)
- │  └─ src/                              # 소스 코드
- ├─ px4_waypoint/                        # 사용자 작성한 waypoint / 웹 연동 스크립트
- ├─ px4_waypoint_v2/                     # waypoint 버전 2 (웹앱, 스크립트 등)
- ├─ rtk/                                 # RTK(정밀위치) 관련 스크립트
- ├─ PX4-ROS2-Gazebo-Drone-Simulation-Template/  # Gazebo + ROS2 시뮬레이션 템플릿
- └─ README.md                            # 이 파일
- ```
+```
+안드로이드 앱 ──UDP 5005 "위도,경도"──▶ app.py ──MAVSDK──▶ PX4 (임무 업로드·시작·일시정지)
+웹 브라우저(:1717) ──정찰 웨이포인트 설정 / 상태 조회──▶ app.py
+정찰: 웨이포인트 임무 업로드 → 비행 → 임무 종료 후 자동 귀환(RTL)
+긴급 좌표 수신 시: 진행 중인 정찰 일시정지 → goto 로 긴급 지점(고도 20m) 출동 → 도착 후 귀환(RTL)
+```
 
- ## 각 폴더 설명
+## 📁 파일 구조
 
- - `PX4-Autopilot/`
-	 - PX4 오토파일럿 소스 코드가 들어있는 메인 디렉터리입니다.
-	 - 빌드 결과(`build/`)나 서브모듈의 패키지 데이터가 포함되어 있을 수 있으므로 초기 푸시 시 주의하세요.
+```
+pixhawk_drone/
+└── px4_waypoint/
+    ├── px4_waypoint_v1/px4_waypoint.py       # v1: 코드에 고정된 웨이포인트로 임무 비행
+    ├── px4_waypoint_v2/
+    │   ├── px4_waypoint.py                   # v2: 안드로이드에서 UDP 로 받은 좌표로 임무 비행
+    │   └── drone_mission_web/
+    │       ├── app.py                        # 최종: 웹 관제 (정찰 + 긴급 출동), 포트 1717
+    │       ├── app_v1.py                     # app.py 의 이전 동작 버전
+    │       └── templates/index.html          # 관제 화면
+    ├── web_px4.py                            # 좌표 수신 → 웹에서 YES/NO 승인 → 임무 실행, 포트 5030
+    └── rtk/rtk.py                            # RTCM 1005(기준국 위치) 메시지를 MAVLink 로 주입하는 시험
+```
 
- - `px4_ros_uxrce_dds_ws/`
-	 - Micro XRCE DDS와 관련된 ROS 워크스페이스입니다. `build/`, `install/`, `log/` 등 빌드 산출물이 포함됩니다.
-	 - 일반적으로 `build/`, `install/`, `log/` 등은 `.gitignore`에 추가하여 소스만 관리합니다.
+## 🛠️ 필요한 외부 소프트웨어
 
- - `px4_waypoint/`, `px4_waypoint_v2/`
-	 - 사용자 제작 스크립트와 웹 앱(예: `drone_mission_web`)이 포함되어 있습니다.
-	 - 프로젝트의 핵심 로직(경로 계획, 웹 연동 등)이 위치합니다.
+이 저장소에는 아래 외부 소스를 넣지 않습니다. 개발 당시 쓰던 커밋을 기록해 둡니다.
 
- - `PX4-ROS2-Gazebo-Drone-Simulation-Template/`
-	 - Gazebo와 ROS2 환경에서 PX4를 시뮬레이션하기 위한 템플릿과 설치 스크립트가 포함됩니다.
+| 소프트웨어 | 원본 저장소 | 당시 커밋 |
+|---|---|---|
+| PX4 Autopilot | https://github.com/PX4/PX4-Autopilot | `8625a902f7a50bb0cd27381dc8f91abda66699ba` |
+| Micro XRCE-DDS Agent | https://github.com/eProsima/Micro-XRCE-DDS-Agent | `57d086216d01ec43121845d385894a25987f8a2c` (v2.4.2) |
+| PX4-ROS2-Gazebo 시뮬레이션 템플릿 | https://github.com/SathanBERNARD/PX4-ROS2-Gazebo-Drone-Simulation-Template | `2dc9ca941628b72bde407068829019af9d078dba` |
+| QGroundControl | https://docs.qgroundcontrol.com/master/en/qgc-user-guide/getting_started/download_and_install.html | — |
 
- - `QGroundControl-x86_64.AppImage`
-	 - QGroundControl의 실행 가능한 AppImage 파일입니다. 파일 크기가 매우 크므로 일반적으로 Git에 포함시키지 않고 별도 저장소나 릴리스(Release)로 관리합니다.
+## 🚀 실행 방법 (시뮬레이션 기준)
 
- ## Git 관리 관련 권장사항
+1. PX4 SITL 실행
+   ```bash
+   cd PX4-Autopilot
+   make px4_sitl gz_x500
+   ```
+2. 파이썬 의존성 설치
+   ```bash
+   pip3 install mavsdk flask aiohttp pymavlink pyrtcm
+   ```
+3. 웹 관제 실행
+   ```bash
+   cd px4_waypoint/px4_waypoint_v2/drone_mission_web
+   python3 app.py
+   ```
+4. 브라우저에서 `http://<PC 주소>:1717` 접속
+5. 안드로이드 앱(또는 아래 명령)으로 좌표 전송
+   ```bash
+   echo -n "47.3980,8.5460" | nc -u -w1 <PC 주소> 5005
+   ```
 
- - `.gitignore`에 다음 항목이 포함되어야 합니다:
-	 - `build/`, `install/`, `log/` (워크스페이스 빌드 아티팩트)
-	 - `*.AppImage`, `*.zip`, 대형 바이너리
-	 - 편집기/OS 관련 파일 (`.vscode/`, `*.swp`, `.DS_Store` 등)
-
- - 대형 바이너리를 저장해야 한다면 Git LFS 사용을 권장합니다. (예: `git lfs track "*.AppImage"`)
-
- - 민감정보(API 키, 토큰 등)은 절대 커밋하지 마세요. 이미 푸시된 비밀이 있다면 즉시 레포지토리 히스토리에서 제거하고 토큰을 교체하세요.
-
- ## 간단 사용법
-
- 로컬에서 프로젝트 루트로 이동한 뒤(이미 git이 설정된 경우):
-
- - 상태 확인:
- ```bash
- git status
- ```
-
- - 원격으로 푸시하기(SSH로 origin이 설정되어 있다면):
- ```bash
- git push origin main
- ```
-
- ## 기여 및 문의
-
- - 기여하실 경우 이슈(issue)를 열어 변경 목적을 설명해 주세요.
- - 협업 시 히스토리 재작성(force-push)를 한 경우, 다른 기여자는 로컬을 `git fetch` 후 `git reset --hard origin/main`로 동기화해야 합니다.
-
- ---
-
- (이 README는 프로젝트 구조를 빠르게 파악할 수 있도록 작성되었습니다. 더 자세한 설치/빌드 절차나 사용법을 원하시면 알려주세요.)
+> `rtk/rtk.py` 의 기준국 좌표(47.3977, 8.5456)는 PX4 SITL 기본 위치(취리히)입니다. 실제 기체에 쓸 때는 실제 기준국 좌표로 바꿔야 합니다.
